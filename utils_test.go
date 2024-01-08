@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/aandryashin/matchers"
 	"github.com/aerokube/selenoid/protect"
 	"github.com/aerokube/selenoid/service"
 	"github.com/aerokube/selenoid/session"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/pborman/uuid"
+	assert "github.com/stretchr/testify/require"
 )
 
 type HTTPTest struct {
@@ -106,7 +106,7 @@ func Selenium() http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		u := uuid.New()
+		u := uuid.NewString()
 		lock.Lock()
 		sessions[u] = struct{}{}
 		lock.Unlock()
@@ -188,6 +188,7 @@ func TestProcessExtensionCapabilities(t *testing.T) {
 	capsJson := `{
 		"version": "57.0",
 		"browserName": "firefox",
+		"appium:deviceName": "android",
 		"selenoid:options": {
 			"name": "ExampleTestName",
 			"enableVNC": true,
@@ -198,19 +199,20 @@ func TestProcessExtensionCapabilities(t *testing.T) {
 	}`
 	var caps session.Caps
 	err := json.Unmarshal([]byte(capsJson), &caps)
-	AssertThat(t, err, Is{nil})
-	AssertThat(t, caps.Name, EqualTo{"firefox"})
-	AssertThat(t, caps.Version, EqualTo{"57.0"})
-	AssertThat(t, caps.TestName, EqualTo{""})
+	assert.NoError(t, err)
+	assert.Equal(t, caps.Name, "firefox")
+	assert.Equal(t, caps.Version, "57.0")
+	assert.Equal(t, caps.TestName, "")
 
 	caps.ProcessExtensionCapabilities()
-	AssertThat(t, caps.Name, EqualTo{"firefox"})
-	AssertThat(t, caps.Version, EqualTo{"57.0"})
-	AssertThat(t, caps.TestName, EqualTo{"ExampleTestName"})
-	AssertThat(t, caps.VNC, EqualTo{true})
-	AssertThat(t, caps.VideoFrameRate, EqualTo{uint16(24)})
-	AssertThat(t, caps.Env, EqualTo{[]string{"LANG=de_DE.UTF-8"}})
-	AssertThat(t, caps.Labels, EqualTo{map[string]string{"key": "value"}})
+	assert.Equal(t, caps.Name, "firefox")
+	assert.Equal(t, caps.Version, "57.0")
+	assert.Equal(t, caps.DeviceName, "android")
+	assert.Equal(t, caps.TestName, "ExampleTestName")
+	assert.True(t, caps.VNC)
+	assert.Equal(t, caps.VideoFrameRate, uint16(24))
+	assert.Equal(t, caps.Env, []string{"LANG=de_DE.UTF-8"})
+	assert.Equal(t, caps.Labels, map[string]string{"key": "value"})
 }
 
 func TestSumUsedTotalGreaterThanPending(t *testing.T) {
@@ -228,25 +230,53 @@ func TestSumUsedTotalGreaterThanPending(t *testing.T) {
 	u := srv.URL + "/"
 
 	_, err := http.Get(u)
-	AssertThat(t, err, Is{nil})
-	AssertThat(t, queue.Pending(), EqualTo{1})
+	assert.NoError(t, err)
+	assert.Equal(t, queue.Pending(), 1)
 	queue.Create()
-	AssertThat(t, queue.Pending(), EqualTo{0})
-	AssertThat(t, queue.Used(), EqualTo{1})
+	assert.Equal(t, queue.Pending(), 0)
+	assert.Equal(t, queue.Used(), 1)
 
 	_, err = http.Get(u)
-	AssertThat(t, err, Is{nil})
-	AssertThat(t, queue.Pending(), EqualTo{1})
+	assert.NoError(t, err)
+	assert.Equal(t, queue.Pending(), 1)
 	queue.Create()
-	AssertThat(t, queue.Pending(), EqualTo{0})
-	AssertThat(t, queue.Used(), EqualTo{2})
+	assert.Equal(t, queue.Pending(), 0)
+	assert.Equal(t, queue.Used(), 2)
 
 	req, _ := http.NewRequest(http.MethodGet, u, nil)
-	ctx, _ := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	req = req.WithContext(ctx)
 
 	_, err = http.DefaultClient.Do(req)
-	AssertThat(t, err, Not{nil})
-	AssertThat(t, queue.Pending(), EqualTo{0})
-	AssertThat(t, queue.Used(), EqualTo{2})
+	assert.NoError(t, err)
+	assert.Equal(t, queue.Pending(), 0)
+	assert.Equal(t, queue.Used(), 2)
+}
+
+func TestBrowserName(t *testing.T) {
+	var caps session.Caps
+
+	var capsJson = `{
+		"appium:deviceName": "iPhone 7"
+	}`
+	err := json.Unmarshal([]byte(capsJson), &caps)
+	assert.NoError(t, err)
+	assert.Equal(t, caps.BrowserName(), "iPhone 7")
+
+	capsJson = `{
+		"deviceName": "android 11"
+	}`
+	err = json.Unmarshal([]byte(capsJson), &caps)
+	assert.NoError(t, err)
+	assert.Equal(t, caps.BrowserName(), "android 11")
+
+	capsJson = `{
+		"deviceName": "android 11",
+		"appium:deviceName": "iPhone 7",
+		"browserName": "firefox"
+	}`
+	err = json.Unmarshal([]byte(capsJson), &caps)
+	assert.NoError(t, err)
+	assert.Equal(t, caps.BrowserName(), "firefox")
 }
